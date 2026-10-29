@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // !!! O'zingizning admin emailingizni yozing (Authentication'da yaratgan foydalanuvchi) !!!
+    function isAdmin() {
+      return request.auth != null && request.auth.token.get('email', '') == 'ADMIN_EMAIL@example.com';
+    }
+    function isVip() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.vip == true;
+    }
+
+    // Test ro'yxati (FREE savollar bilan; VIP uchun savollar bo'sh)
+    match /modules/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    // VIP savollar: faqat VIP foydalanuvchi va admin
+    match /vipQuestions/{id} {
+      allow read: if isAdmin() || isVip();
+      allow write: if isAdmin();
+    }
+    // Foydalanuvchilar: har kim faqat o'zinikini ko'radi; VIP'ni faqat admin o'zgartiradi
+    match /users/{uid} {
+      allow get: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.vip == false
+        && request.resource.data.keys().hasOnly(['code', 'vip', 'nick', 'createdAt']);
+      allow update: if isAdmin()
+        || (request.auth != null && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nick']));
+    }
+  }
+}
